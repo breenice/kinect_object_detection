@@ -1,8 +1,11 @@
-import cv2
-import numpy as np
 import time
 import os
 import pyrealsense2 as rs
+from yolo_image_test import *
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+from ultralytics import YOLO
 
 class RealSense:
     def __init__(self):
@@ -84,9 +87,15 @@ class RealSense:
             while True:
                 frames = self.pipeline.wait_for_frames()
                 color_frame = frames.get_color_frame()
-
+                # color frame with yolo classification
                 color_image = np.asanyarray(color_frame.get_data())
-                cv2.imshow('RealSense Feed', color_image)
+                model = YOLO("yolov10n.pt")
+                results = model(color_image)
+                image_rgb = results[0].plot()
+                # yolo_color_image = analyze(color_image)
+                # results[0].show()
+
+                cv2.imshow('RealSense Feed', image_rgb)
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
@@ -202,8 +211,3 @@ if __name__ == "__main__":
 
     # frame_rate = (total_frame-1)/(time.time() - start_time)
     # print("relsense framerate:", frame_rate)
-
-
-git remote add origin https://github.com/breenice/kinect_object_detection.git
-git branch -M main
-git push -u origin main
