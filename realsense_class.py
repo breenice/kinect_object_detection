@@ -1,11 +1,8 @@
+import cv2
+import numpy as np
 import time
 import os
 import pyrealsense2 as rs
-from yolo_image_test import *
-import cv2
-import numpy as np
-from matplotlib import pyplot as plt
-from ultralytics import YOLO
 
 class RealSense:
     def __init__(self):
@@ -17,7 +14,7 @@ class RealSense:
         self.fps=30
         self.frames= None
 
-        self.pipeline = rs.pipeline() # API for camera streaming (and wait for frame loops)
+        self.pipeline = rs.pipeline()
         config = rs.config()
         config.enable_stream(rs.stream.color, self.image_width, self.image_height, rs.format.rgb8, self.fps)
         config.enable_stream(rs.stream.depth, self.image_width,self.image_height, rs.format.z16, self.fps)
@@ -87,15 +84,9 @@ class RealSense:
             while True:
                 frames = self.pipeline.wait_for_frames()
                 color_frame = frames.get_color_frame()
-                # color frame with yolo classification
-                color_image = np.asanyarray(color_frame.get_data())
-                model = YOLO("yolov10n.pt")
-                results = model(color_image)
-                image_rgb = results[0].plot()
-                # yolo_color_image = analyze(color_image)
-                # results[0].show()
 
-                cv2.imshow('RealSense Feed', image_rgb)
+                color_image = np.asanyarray(color_frame.get_data())
+                cv2.imshow('RealSense Feed', color_image)
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
@@ -128,7 +119,7 @@ class RealSense:
             color_filename = os.path.join(self.color_output_directory, f"color_{frame_id}_{time.time()}.png")
             depth_filename = os.path.join(self.depth_output_directory, f"depth_{frame_id}_{time.time()}.png")
 
-            cv2.imwrite(color_filename, self.color_image) # saves image
+            cv2.imwrite(color_filename, self.color_image)
             cv2.imwrite(depth_filename, self.depth_image)
 
         except KeyboardInterrupt:
@@ -211,3 +202,5 @@ if __name__ == "__main__":
 
     # frame_rate = (total_frame-1)/(time.time() - start_time)
     # print("relsense framerate:", frame_rate)
+
+
