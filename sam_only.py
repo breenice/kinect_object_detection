@@ -7,7 +7,14 @@ import numpy as np
 import os
 import cv2
 
+"""
+https://github.com/facebookresearch/segment-anything/blob/main/notebooks/predictor_example.ipynb
+"""
+
 def show_mask(mask, ax, random_color=False):
+    """
+    
+    """
     if random_color:
         color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
     else:
@@ -56,22 +63,6 @@ def show_points_and_boxes_on_image(raw_image, boxes, input_points, input_labels=
     plt.axis('on')
     plt.show()
 
-
-def show_points_and_boxes_on_image(raw_image, boxes, input_points, input_labels=None):
-    plt.figure(figsize=(10,10))
-    plt.imshow(raw_image)
-    input_points = np.array(input_points)
-    if input_labels is None:
-      labels = np.ones_like(input_points[:, 0])
-    else:
-      labels = np.array(input_labels)
-    show_points(input_points, labels, plt.gca())
-    for box in boxes:
-      show_box(box, plt.gca())
-    plt.axis('on')
-    plt.show()
-
-
 def show_points(coords, labels, ax, marker_size=375):
     pos_points = coords[labels==1]
     neg_points = coords[labels==0]
@@ -80,7 +71,7 @@ def show_points(coords, labels, ax, marker_size=375):
 
 
 def show_masks_on_image(raw_image, masks, scores):
-    if len(masks.shape) == 4:
+    if len(masks.shape) == 2:
       masks = masks.squeeze()
     if scores.shape[0] == 1:
       scores = scores.squeeze()
@@ -109,7 +100,7 @@ if __name__ == "__main__":
     inputs = processor(raw_image, return_tensors="pt").to(device) # tensor format with normalization, resize, and shape transformation
     image_embeddings = model.get_image_embeddings(inputs["pixel_values"]) 
 
-    input_boxes = [[[0, 0, 600, 300]]]
+    input_boxes = [[[0, 0, 550, 300]]]
     input_points = [[[200, 200]]]
 
 
