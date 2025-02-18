@@ -6,6 +6,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection, SamModel, SamProcessor
 from segment_anything import  sam_model_registry, SamPredictor
+import os
 
 # grounded dino---------------------------------------------------------------------
 model_id = "IDEA-Research/grounding-dino-tiny" #lightweight version of grounding dino
@@ -35,6 +36,12 @@ results = gprocessor.post_process_grounded_object_detection(
 )
 
 # sam ----------------------------------------------------------------------------------------
+SAM_CHECKPOINT_PATH = os.path.join("weights", "sam_vit_h_4b8939.pth")
+SAM_ENCODER_VERSION = "vit_h"
+CLASSES = ['car', 'dog', 'person', 'nose', 'chair', 'shoe', 'ear']
+BOX_TRESHOLD = 0.35
+TEXT_TRESHOLD = 0.25
+
 sam_device = "cuda" if torch.cuda.is_available() else "cpu" # run with cuda
 sam_model = SamModel.from_pretrained("facebook/sam-vit-huge").to(sam_device)
 sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-huge")
