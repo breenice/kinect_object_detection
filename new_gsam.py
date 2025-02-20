@@ -22,7 +22,7 @@ model = AutoModel.from_pretrained(GROUNDING_DINO_CHECKPOINT_PATH)
 processor = AutoProcessor.from_pretrained(GROUNDING_DINO_CONFIG_PATH)
 
 
-image = cv2.imread("/home/stretch/Documents/bree/sam/forestcat.jpg")
+image = cv2.imread("/home/stretch/Documents/bree/sam/data/forestcat.jpg")
 # Check for cats and stuff
 text = "a cat. a remote control."
 
