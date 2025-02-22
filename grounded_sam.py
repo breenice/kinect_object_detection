@@ -7,113 +7,116 @@ import matplotlib.pyplot as plt
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection, SamModel, SamProcessor
 from segment_anything import  sam_model_registry, SamPredictor
 import os
+import cv2
 
-# grounded dino---------------------------------------------------------------------
-model_id = "IDEA-Research/grounding-dino-tiny" #lightweight version of grounding dino
-device = "cuda"
+class GroundedSAM:
+    def __init__(self):
+        # initialize grounding dino processor and model from hugging face
+        gdino_model_id = "IDEA-Research/grounding-dino-tiny" #lightweight version of grounding dino
+        self.device = "cuda"
+        self.gprocessor = AutoProcessor.from_pretrained(gdino_model_id)
+        self.gdino_model = AutoModelForZeroShotObjectDetection.from_pretrained(gdino_model_id).to(self.device)
 
-gprocessor = AutoProcessor.from_pretrained(model_id)
-model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).to(device)
+        # initialize sam processor and model from checkpoint
+        SAM_ENCODER_VERSION = "vit_h"
+        SAM_CHECKPOINT_PATH = os.path.join("weights", "sam_vit_h_4b8939.pth")
+        sam_device = "cuda" if torch.cuda.is_available() else "cpu"
+        sam = sam_model_registry[SAM_ENCODER_VERSION](checkpoint=SAM_CHECKPOINT_PATH).to(device=sam_device)
+        self.sam_predictor = SamPredictor(sam)
 
-image = Image.open("/home/stretch/Documents/bree/sam/forestcat.jpg")
-# Check for cats and remote controls
-text = "a cat. a tree."
+        self.image = None
 
-inputs = gprocessor(images=image, text=text, return_tensors="pt").to(device) # transforms raw image into PyTorch tensor resize to input to dino model
-with torch.no_grad(): # disabled gradient calculations (to save time re-enable if no time constriants)
-    outputs = model(**inputs)
+    def load_image(self, image_path):
+        self.image = cv2.imread(image_path)
 
-# output: list of dictionaries 
-# dictionaries inlcude per image/batch: scores, labels and bounding boxes
-results = gprocessor.post_process_grounded_object_detection(
-    outputs, # predictions: bounding boxes and classifications (with scoring)
-    inputs.input_ids, # tokenized text input ids with separator tokens
-    box_threshold=0.4, # keeps bounding boxes with at least 40% confidence score
-    text_threshold=0.3, # keep predictions (matched to text input) only if at least 30% confidence
+    """
+    get object detections with Grounding DINO
+    2 methods: query or all objects
+    """
+    # query method
+    def get_detections(self,text):
+        inputs = self.gprocessor(images=self.image, text=text, return_tensors="pt").to(self.device) # transforms raw image into PyTorch tensor resize to input to dino model
+        with torch.no_grad(): # disabled gradient calculations (to save time re-enable if no time constriants)
+            outputs = self.gdino_model(**inputs)
 
-    # note: tensor size if specified must be tuple or list
-    target_sizes=[image.size[::-1]] # refromats for viewing (previously flipped for model input)
-)
+        # output: list of dictionaries 
+        # dictionaries inlcude per image/batch: scores, labels and bounding boxes
+        results = self.gprocessor.post_process_grounded_object_detection(
+            outputs, # predictions: bounding boxes and classifications (with scoring)
+            inputs.input_ids, # tokenized text input ids with separator tokens
+            box_threshold=0.4, # keeps bounding boxes with at least 40% confidence score
+            text_threshold=0.3, # keep predictions (matched to text input) only if at least 30% confidence
+            target_sizes = [self.image.shape[:2]]
 
-# sam ----------------------------------------------------------------------------------------
-SAM_CHECKPOINT_PATH = os.path.join("weights", "sam_vit_h_4b8939.pth")
-SAM_ENCODER_VERSION = "vit_h"
-CLASSES = ['car', 'dog', 'person', 'nose', 'chair', 'shoe', 'ear']
-BOX_TRESHOLD = 0.35
-TEXT_TRESHOLD = 0.25
-
-sam_device = "cuda" if torch.cuda.is_available() else "cpu" # run with cuda
-sam_model = SamModel.from_pretrained("facebook/sam-vit-huge").to(sam_device)
-sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-huge")
-sam_image = Image.open("/home/stretch/Documents/bree/sam/forestcat.jpg")
-sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-huge")
-
-sam_inputs = sam_processor(sam_image, return_tensors="pt").to(sam_device) # tensor format with normalization, resize, and shape transformation
-sam_inputs["input_points"] = []
-sam_inputs["input_boxes"] = []
-sam_inputs["input_labels"] = []
-
-input_boxes = []
-image_embeddings = sam_model.get_image_embeddings(sam_inputs["pixel_values"]) 
-
-for result in results:
-    scores = result['scores']
-    labels = result['labels']
-    boxes = result['boxes']
-
-    for score, label, box in zip(scores, labels, boxes):
-        x_min, y_min, x_max, y_max = box.tolist()
-        input_boxes.append([x_min, y_min, x_max, y_max])
-input_boxes = np.array(input_boxes)
-
-sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
-sam_predictor = SamPredictor(sam)
-
-masks, _, _ = sam_predictor.predict(
-    point_coords=None,
-    point_labels=None,
-    box=input_boxes[None, :],
-    multimask_output=False,
-)
-
-inputs = sam_processor(image, input_boxes=[input_boxes], return_tensors="pt").to(device)
-
-inputs.pop("pixel_values", None) #no longer using raw pixel values, using embedded inputs
-inputs.update({"image_embeddings": image_embeddings})
-
-with torch.no_grad():
-    sam_outputs = sam_model(**sam_inputs) # predictions (forward pass with no gradients)
-
-# masks output as (number of detected objects, 1(singleton used for identifying batches), image height, image width)
-# use masks[0][0] as first detected mask group without the extra singleton dimension (so can be viewed on 2D image)
-masks = sam_processor.image_processor.post_process_masks(sam_outputs.pred_masks.cpu(), 
-                                                         sam_inputs["original_sizes"].cpu(), 
-                                                         sam_inputs["reshaped_input_sizes"].cpu()) # masks resized with input preferences
-
-
-# show image ---------------------------------------------------------------------------------------------
-
-# extract data from grounding dino results
-for result in results:
-    scores = result['scores']
-    labels = result['labels']
-    boxes = result['boxes']
-
-nb_predictions = scores.shape[-1]
-fig, axes = plt.subplots(1, nb_predictions, figsize=(15, 15))
-
-for i, (mask, score) in enumerate(zip(masks[0][0], scores)):
-    mask = mask.cpu().detach().numpy() 
+            # note: tensor size if specified must be tuple or list
+        )
+        print(results)
+        return results
     
-    axes[i].imshow(np.array(sam_image)) # raw image
-    axes[i].imshow(mask, cmap='grey', alpha=0.5) # apply masks as transparent grey
+    """
+    segment image per detected object with segment anything model
+    SAM outputs array of booleans
+    """
+    def segment_with_boxes(self, results):
+        result_masks = []
+        self.sam_predictor.set_image(self.image)
+        boxes = results[0]["boxes"].cpu().numpy() # extract bounding boxes from grounding dino detections
 
-    x_min, y_min, x_max, y_max = boxes[i].tolist()
-    rect = plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, 
-                         linewidth=2, edgecolor='red', facecolor='none')
-    axes[i].add_patch(rect) # draw bounding boxes
-    axes[i].text(x_min, y_min - 10, f"Score: {score.item():.2f}", color='red', fontsize=12)
-    axes[i].title.set_text(f"Mask {i+1}, Score: {score.item():.3f}")
-    axes[i].axis("off") 
+        # iterate through bounding boxes and save mask of best confidence score per box
+        for b in boxes:
+            masks, s_scores, _ = self.sam_predictor.predict(
+                box=b,
+                multimask_output=True
+            )
+            index = np.argmax(s_scores)
+            result_masks.append(masks[index])
 
-plt.show()
+        result_masks=np.array(result_masks)
+        return result_masks
+
+    """
+    show annotated image with bounding box and segmentation mask
+    """
+    def show_seg_box(self, results, masks):
+        classes = (results[0])["labels"]
+        image_rgb = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+        fig, ax = plt.subplots(1, figsize=(10, 10))
+        ax.imshow(image_rgb)
+
+
+        scores = results[0]['scores']
+        labels = results[0]['labels']
+        boxes = results[0]['boxes']
+        colors = []
+        for i in range(len(scores)):
+            colors.append(np.random.randint(100, 256, size=3).tolist()) # rand color
+
+        for i, (score, label, box) in enumerate(zip(scores, labels, boxes)):
+            # draw bounding box
+            color = [x / 256 for x in colors[i]]
+            x_min, y_min, x_max, y_max = box.tolist()
+            rect = plt.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, 
+                                linewidth=2, edgecolor=color, facecolor='none')
+            ax.add_patch(rect)
+            ax.text(x_min, y_min - 10, f"{label}: {score:.2f}", color=color, fontsize=12) # label
+
+        overlay = image_rgb.copy() 
+        for i, (mask, score) in enumerate(zip(masks, scores)):
+            mask = mask.astype(np.uint8)
+            mask_colored = np.zeros_like(image_rgb, dtype=np.uint8)
+            mask_colored[mask==1] = colors[i]
+
+            overlay = cv2.addWeighted(overlay, 1.0, mask_colored, 0.5, 0) # iteratively adds mask (imshow overwrites last saved mask)
+        ax.imshow(overlay)
+
+        plt.axis('off') 
+        plt.show()
+
+if __name__ == "__main__":
+    gsam = GroundedSAM()
+    gsam.load_image("/home/stretch/Documents/bree/sam/data/forestcat.jpg")
+    query = "a cat. a tree."
+    detections = gsam.get_detections(query)
+    masks = gsam.segment_with_boxes(detections)
+    gsam.show_seg_box(detections, masks)
+
